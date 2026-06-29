@@ -3,8 +3,8 @@
   "apps": [
     {
       "name": "TLA",
-      "path": "ios",
-      "framework": "swift"
+      "path": ".",
+      "framework": "react-native"
     },
     {
       "name": "Functions",

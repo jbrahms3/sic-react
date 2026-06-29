@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "TLA",
+    "slug": "tla",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "tla",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F6F3EA"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rork.tla"
+    },
+    "android": {
+      "package": "com.rork.tla",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#F6F3EA"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "TLA needs access to your photos so you can share a picture for today's acronym."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
