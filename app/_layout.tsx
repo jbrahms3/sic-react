@@ -72,6 +72,7 @@ function RootNavigator() {
       <Stack.Screen name="post/[id]" options={{ headerShown: true, title: "Post" }} />
       <Stack.Screen name="day/[day]" options={{ headerShown: true, title: "Past day" }} />
       <Stack.Screen name="user/[id]" options={{ headerShown: true, title: "Profile" }} />
+      <Stack.Screen name="admin" options={{ headerShown: true, title: "Admin" }} />
     </Stack>
   );
 }

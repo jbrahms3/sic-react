@@ -140,4 +140,25 @@ export const API = {
   async profile(userId: string, token: string): Promise<ProfileResponse> {
     return request<ProfileResponse>(`profile/${userId}`, { token });
   },
+
+  async checkAdmin(token: string): Promise<boolean> {
+    const res = await request<{ isAdmin: boolean }>("admin/check", { token });
+    return res.isAdmin;
+  },
+
+  async adminGetAcronyms(token: string): Promise<{ day: string; acronym: string; isOverride: boolean }[]> {
+    const res = await request<{ days: { day: string; acronym: string; isOverride: boolean }[] }>(
+      "admin/acronyms",
+      { token },
+    );
+    return res.days;
+  },
+
+  async adminSetAcronym(day: string, acronym: string, token: string): Promise<void> {
+    await request("admin/acronyms", { method: "POST", body: { day, acronym }, token });
+  },
+
+  async adminClearAcronym(day: string, token: string): Promise<void> {
+    await request(`admin/acronyms/${day}`, { method: "DELETE", token });
+  },
 };

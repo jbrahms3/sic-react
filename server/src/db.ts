@@ -44,5 +44,12 @@ export async function initDb(): Promise<void> {
       text TEXT NOT NULL,
       created_at BIGINT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS scheduled_acronyms (
+      day TEXT PRIMARY KEY,
+      acronym TEXT NOT NULL,
+      set_by TEXT NOT NULL,
+      set_at BIGINT NOT NULL
+    );
   `);
 }

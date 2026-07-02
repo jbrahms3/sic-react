@@ -23,6 +23,23 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   }
 }
 
+export function isAdmin(userId: string): boolean {
+  const ids = (process.env.ADMIN_USER_IDS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return ids.includes(userId);
+}
+
+export async function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (!token) return res.status(401).json({ error: "unauthorized" });
+  try {
+    req.userId = await verify(token);
+    if (!isAdmin(req.userId)) return res.status(403).json({ error: "forbidden" });
+    next();
+  } catch {
+    return res.status(401).json({ error: "invalid token" });
+  }
+}
+
 export async function optionalAuth(req: AuthRequest, _res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   if (token) {

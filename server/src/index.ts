@@ -4,13 +4,21 @@ import { v4 as uuidv4 } from "uuid";
 import { pool, initDb } from "./db";
 import { uploadImage, imagePublicUrl } from "./r2";
 import { acronymForDay } from "./acronyms";
-import { requireAuth, optionalAuth, type AuthRequest } from "./auth";
+import { requireAuth, requireAdmin, optionalAuth, isAdmin, type AuthRequest } from "./auth";
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 
 const newId = () => uuidv4().replace(/-/g, "");
+
+async function resolvedAcronym(day: string): Promise<string> {
+  const { rows } = await pool.query(
+    "SELECT acronym FROM scheduled_acronyms WHERE day = $1",
+    [day],
+  );
+  return rows[0]?.acronym ?? acronymForDay(day);
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -118,7 +126,7 @@ app.get("/today", async (_req, res) => {
   const day = now.toISOString().slice(0, 10);
   const msUntilNext = (Math.floor(now.getTime() / 86_400_000) + 1) * 86_400_000 - now.getTime();
   const { rows } = await pool.query("SELECT COUNT(*) AS c FROM posts WHERE day = $1", [day]);
-  return res.json({ day, acronym: acronymForDay(day), msUntilNext, postCount: Number(rows[0].c) });
+  return res.json({ day, acronym: await resolvedAcronym(day), msUntilNext, postCount: Number(rows[0].c) });
 });
 
 // Days
@@ -126,9 +134,10 @@ app.get("/days", async (_req, res) => {
   const { rows } = await pool.query(
     "SELECT day, COUNT(*) AS c FROM posts GROUP BY day ORDER BY day DESC",
   );
-  return res.json({
-    days: rows.map((r) => ({ day: r.day, acronym: acronymForDay(r.day), postCount: Number(r.c) })),
-  });
+  const days = await Promise.all(
+    rows.map(async (r) => ({ day: r.day, acronym: await resolvedAcronym(r.day), postCount: Number(r.c) })),
+  );
+  return res.json({ days });
 });
 
 // Feed
@@ -247,6 +256,50 @@ app.post("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) => {
     };
   }));
   return res.json({ comments });
+});
+
+// ── admin ──────────────────────────────────────────────────────────────────
+
+// Check if current user is admin
+app.get("/admin/check", requireAuth, (req: AuthRequest, res) => {
+  return res.json({ isAdmin: isAdmin(req.userId!) });
+});
+
+// List scheduled acronyms for the next N days
+app.get("/admin/acronyms", requireAdmin, async (_req, res) => {
+  const now = new Date();
+  const days: { day: string; acronym: string; isOverride: boolean }[] = [];
+  const { rows: overrides } = await pool.query("SELECT day, acronym FROM scheduled_acronyms");
+  const overrideMap = Object.fromEntries(overrides.map((r: any) => [r.day, r.acronym]));
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() + i);
+    const day = d.toISOString().slice(0, 10);
+    const isOverride = !!overrideMap[day];
+    days.push({ day, acronym: overrideMap[day] ?? acronymForDay(day), isOverride });
+  }
+  return res.json({ days });
+});
+
+// Set acronym override for a day
+app.post("/admin/acronyms", requireAdmin, async (req: AuthRequest, res) => {
+  const { day, acronym } = req.body as { day?: string; acronym?: string };
+  if (!day || !acronym) return res.status(400).json({ error: "missing day or acronym" });
+  const clean = acronym.trim().toUpperCase();
+  if (!/^[A-Z]{2,6}$/.test(clean)) return res.status(400).json({ error: "acronym must be 2-6 letters" });
+  await pool.query(
+    `INSERT INTO scheduled_acronyms (day, acronym, set_by, set_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (day) DO UPDATE SET acronym = $2, set_by = $3, set_at = $4`,
+    [day, clean, req.userId!, Date.now()],
+  );
+  return res.json({ day, acronym: clean });
+});
+
+// Delete acronym override for a day (revert to default)
+app.delete("/admin/acronyms/:day", requireAdmin, async (req, res) => {
+  await pool.query("DELETE FROM scheduled_acronyms WHERE day = $1", [req.params.day]);
+  return res.json({ day: req.params.day, acronym: acronymForDay(req.params.day) });
 });
 
 // ── error handler ──────────────────────────────────────────────────────────
