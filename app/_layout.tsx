@@ -1,3 +1,5 @@
+import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
+import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
@@ -6,28 +8,36 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Theme } from "../constants/theme";
 import { AppStoreProvider, useAppStore } from "../services/store";
 
-/** Redirects between onboarding and the app based on the saved profile. */
-function useOnboardingGate() {
+const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!;
+
+function useAuthGate() {
+  const { isLoaded, isSignedIn } = useAuth();
   const { loading, isOnboarded } = useAppStore();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    if (loading) return;
+    if (!isLoaded || loading) return;
+
+    const inAuth = segments[0] === "(auth)";
     const inOnboarding = segments[0] === "onboarding";
-    if (!isOnboarded && !inOnboarding) {
+
+    if (!isSignedIn && !inAuth) {
+      router.replace("/(auth)/sign-in");
+    } else if (isSignedIn && !isOnboarded && !inOnboarding) {
       router.replace("/onboarding");
-    } else if (isOnboarded && inOnboarding) {
+    } else if (isSignedIn && isOnboarded && (inAuth || inOnboarding)) {
       router.replace("/");
     }
-  }, [loading, isOnboarded, segments, router]);
+  }, [isLoaded, isSignedIn, loading, isOnboarded, segments, router]);
 }
 
 function RootNavigator() {
+  const { isLoaded } = useAuth();
   const { loading } = useAppStore();
-  useOnboardingGate();
+  useAuthGate();
 
-  if (loading) {
+  if (!isLoaded || loading) {
     return (
       <View style={styles.splash}>
         <ActivityIndicator color={Theme.accent} />
@@ -47,6 +57,7 @@ function RootNavigator() {
       }}
     >
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="(auth)" />
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="create" options={{ presentation: "modal" }} />
       <Stack.Screen name="post/[id]" options={{ headerShown: true, title: "Post" }} />
@@ -58,12 +69,14 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <AppStoreProvider>
-        <StatusBar style="dark" />
-        <RootNavigator />
-      </AppStoreProvider>
-    </SafeAreaProvider>
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache}>
+      <SafeAreaProvider>
+        <AppStoreProvider>
+          <StatusBar style="dark" />
+          <RootNavigator />
+        </AppStoreProvider>
+      </SafeAreaProvider>
+    </ClerkProvider>
   );
 }
 

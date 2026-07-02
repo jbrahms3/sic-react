@@ -40,14 +40,14 @@ export default function OnboardingScreen() {
     setSaving(true);
     setError(null);
     try {
+      const token = await store.getToken();
       let avatarId: string | null = null;
       if (avatar) {
         const base64 = await base64JPEG(avatar, 400);
-        if (base64) avatarId = await API.uploadImage(base64);
+        if (base64) avatarId = await API.uploadImage(base64, token);
       }
-      const user = await API.saveUser(store.userId, name, avatarId);
+      const user = await API.saveUser(name, avatarId, token);
       await store.applyProfile(user);
-      // The onboarding gate in _layout redirects into the app once onboarded.
     } catch {
       setError("Couldn't set up your profile. Try again.");
       setSaving(false);

@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth, useUser } from "@clerk/clerk-expo";
 import React, {
   createContext,
   useCallback,
@@ -9,18 +10,8 @@ import React, {
 } from "react";
 import type { AppUser } from "./types";
 
-const USER_ID_KEY = "tla.userId";
 const USERNAME_KEY = "tla.username";
 const AVATAR_KEY = "tla.avatarImageId";
-
-/** Generates a UUID-style identifier without external deps. */
-function generateId(): string {
-  return "xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
 
 interface AppStore {
   loading: boolean;
@@ -28,58 +19,69 @@ interface AppStore {
   username: string | null;
   avatarImageId: string | null;
   isOnboarded: boolean;
-  /** Persists the profile after a successful server save. */
+  getToken: () => Promise<string>;
   applyProfile: (user: AppUser) => Promise<void>;
 }
 
 const AppStoreContext = createContext<AppStore | null>(null);
 
 export function AppStoreProvider({ children }: { children: React.ReactNode }) {
-  const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState("");
+  const { userId, getToken: clerkGetToken, isLoaded: authLoaded } = useAuth();
+  const { user: clerkUser } = useUser();
+
   const [username, setUsername] = useState<string | null>(null);
   const [avatarImageId, setAvatarImageId] = useState<string | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
+  // Load saved display name / avatar from AsyncStorage whenever the Clerk user changes
   useEffect(() => {
+    if (!authLoaded || !userId) {
+      setUsername(null);
+      setAvatarImageId(null);
+      setProfileLoaded(authLoaded);
+      return;
+    }
     (async () => {
       const entries = await AsyncStorage.multiGet([
-        USER_ID_KEY,
-        USERNAME_KEY,
-        AVATAR_KEY,
+        `${USERNAME_KEY}.${userId}`,
+        `${AVATAR_KEY}.${userId}`,
       ]);
       const map = Object.fromEntries(entries);
-
-      let id = map[USER_ID_KEY];
-      if (!id) {
-        id = generateId();
-        await AsyncStorage.setItem(USER_ID_KEY, id);
-      }
-      setUserId(id);
-      setUsername(map[USERNAME_KEY] ?? null);
-      setAvatarImageId(map[AVATAR_KEY] ?? null);
-      setLoading(false);
+      setUsername(map[`${USERNAME_KEY}.${userId}`] ?? null);
+      setAvatarImageId(map[`${AVATAR_KEY}.${userId}`] ?? null);
+      setProfileLoaded(true);
     })();
-  }, []);
+  }, [authLoaded, userId]);
+
+  const getToken = useCallback(async (): Promise<string> => {
+    const token = await clerkGetToken();
+    if (!token) throw new Error("Not authenticated");
+    return token;
+  }, [clerkGetToken]);
 
   const applyProfile = useCallback(async (user: AppUser) => {
+    if (!userId) return;
     setUsername(user.username);
     setAvatarImageId(user.avatarImageId);
-    await AsyncStorage.setItem(USERNAME_KEY, user.username);
+    await AsyncStorage.setItem(`${USERNAME_KEY}.${userId}`, user.username);
     if (user.avatarImageId) {
-      await AsyncStorage.setItem(AVATAR_KEY, user.avatarImageId);
+      await AsyncStorage.setItem(`${AVATAR_KEY}.${userId}`, user.avatarImageId);
     }
-  }, []);
+  }, [userId]);
+
+  const loading = !authLoaded || (!!userId && !profileLoaded);
 
   const value = useMemo<AppStore>(
     () => ({
       loading,
-      userId,
+      userId: userId ?? "",
       username,
       avatarImageId,
-      isOnboarded: !!username && username.length > 0,
+      isOnboarded: !!userId && !!username && username.length > 0,
+      getToken,
       applyProfile,
     }),
-    [loading, userId, username, avatarImageId, applyProfile],
+    [loading, userId, username, avatarImageId, getToken, applyProfile],
   );
 
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;

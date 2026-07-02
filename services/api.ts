@@ -7,12 +7,6 @@ import type {
   TodayInfo,
 } from "./types";
 
-/**
- * Thin async client for the TLA Cloudflare backend.
- *
- * The base URL is injected by Rork via the `EXPO_PUBLIC_RORK_FUNCTIONS_URL`
- * environment variable (Expo inlines `EXPO_PUBLIC_*` at build time).
- */
 const BASE_URL = (process.env.EXPO_PUBLIC_RORK_FUNCTIONS_URL ?? "").replace(/\/$/, "");
 
 export class BackendError extends Error {
@@ -29,7 +23,7 @@ interface RequestOptions {
   method?: string;
   query?: Record<string, string>;
   body?: unknown;
-  userId?: string;
+  token?: string;
 }
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
@@ -41,7 +35,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   }
 
   const headers: Record<string, string> = {};
-  if (opts.userId) headers["X-User-Id"] = opts.userId;
+  if (opts.token) headers["Authorization"] = `Bearer ${opts.token}`;
   let bodyText: string | undefined;
   if (opts.body !== undefined) {
     bodyText = JSON.stringify(opts.body);
@@ -60,7 +54,6 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-/** Public URL for a stored image id. */
 export function imageURL(imageId: string): string {
   return `${BASE_URL}/images/${imageId}`;
 }
@@ -75,60 +68,57 @@ export const API = {
     return res.days;
   },
 
-  async feed(day: string, sort: string, userId: string): Promise<Post[]> {
+  async feed(day: string, sort: string, token: string): Promise<Post[]> {
     const res = await request<{ posts: Post[] }>("feed", {
       query: { day, sort },
-      userId,
+      token,
     });
     return res.posts;
   },
 
-  async uploadImage(base64: string): Promise<string> {
+  async uploadImage(base64: string, token: string): Promise<string> {
     const res = await request<{ imageId: string }>("images", {
       method: "POST",
       body: { data: base64, contentType: "image/jpeg" },
+      token,
     });
     return res.imageId;
   },
 
-  async saveUser(
-    userId: string,
-    username: string,
-    avatarImageId: string | null,
-  ): Promise<AppUser> {
+  async saveUser(username: string, avatarImageId: string | null, token: string): Promise<AppUser> {
     const payload: Record<string, unknown> = { username };
     if (avatarImageId) payload.avatarImageId = avatarImageId;
     const res = await request<{ user: AppUser }>("users", {
       method: "POST",
       body: payload,
-      userId,
+      token,
     });
     return res.user;
   },
 
   async createPost(
-    userId: string,
     caption: string,
     imageId: string,
     day: string,
+    token: string,
   ): Promise<Post> {
     const res = await request<{ post: Post }>("posts", {
       method: "POST",
       body: { caption, imageId, day },
-      userId,
+      token,
     });
     return res.post;
   },
 
-  async post(id: string, userId: string): Promise<Post> {
-    const res = await request<{ post: Post }>(`posts/${id}`, { userId });
+  async post(id: string, token: string): Promise<Post> {
+    const res = await request<{ post: Post }>(`posts/${id}`, { token });
     return res.post;
   },
 
-  async toggleLike(postId: string, userId: string): Promise<Post> {
+  async toggleLike(postId: string, token: string): Promise<Post> {
     const res = await request<{ post: Post }>(`posts/${postId}/like`, {
       method: "POST",
-      userId,
+      token,
     });
     return res.post;
   },
@@ -138,16 +128,16 @@ export const API = {
     return res.comments;
   },
 
-  async addComment(postId: string, userId: string, text: string): Promise<Comment[]> {
+  async addComment(postId: string, text: string, token: string): Promise<Comment[]> {
     const res = await request<{ comments: Comment[] }>(`posts/${postId}/comments`, {
       method: "POST",
       body: { text },
-      userId,
+      token,
     });
     return res.comments;
   },
 
-  async profile(userId: string, viewerId: string): Promise<ProfileResponse> {
-    return request<ProfileResponse>(`profile/${userId}`, { userId: viewerId });
+  async profile(userId: string, token: string): Promise<ProfileResponse> {
+    return request<ProfileResponse>(`profile/${userId}`, { token });
   },
 };

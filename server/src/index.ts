@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { pool, initDb } from "./db";
 import { uploadImage, imagePublicUrl } from "./r2";
 import { acronymForDay } from "./acronyms";
+import { requireAuth, optionalAuth, type AuthRequest } from "./auth";
 
 const app = express();
 app.use(cors());
@@ -23,7 +24,7 @@ async function getUser(id: string) {
   return { id: r.id, username: r.username, avatarImageId: r.avatar_image_id as string | null };
 }
 
-async function decoratePost(row: any, viewerId: string | null) {
+async function decoratePost(row: any, viewerId: string | null | undefined) {
   const user = await getUser(row.user_id);
   const { rows: likeRows } = await pool.query(
     "SELECT COUNT(*) AS c FROM likes WHERE post_id = $1",
@@ -63,7 +64,7 @@ app.get("/ping", (_req, res) => {
   res.json({ ok: true, now: new Date().toISOString() });
 });
 
-// Image: serve public URL redirect
+// Image: serve (redirect to R2 public URL)
 app.get("/images/:id", async (req, res) => {
   const { rows } = await pool.query(
     "SELECT r2_key FROM images WHERE id = $1",
@@ -73,8 +74,8 @@ app.get("/images/:id", async (req, res) => {
   return res.redirect(imagePublicUrl(rows[0].r2_key));
 });
 
-// Image: upload
-app.post("/images", async (req, res) => {
+// Image: upload (auth required)
+app.post("/images", requireAuth, async (req: AuthRequest, res) => {
   const { data, contentType = "image/jpeg" } = req.body as { data?: string; contentType?: string };
   if (!data) return res.status(400).json({ error: "missing data" });
   const id = newId();
@@ -88,10 +89,9 @@ app.post("/images", async (req, res) => {
   return res.json({ imageId: id });
 });
 
-// User: create/update
-app.post("/users", async (req, res) => {
-  const userId = req.headers["x-user-id"] as string | undefined;
-  if (!userId) return res.status(400).json({ error: "missing user" });
+// User: create/update (auth required)
+app.post("/users", requireAuth, async (req: AuthRequest, res) => {
+  const userId = req.userId!;
   const { username, avatarImageId } = req.body as { username?: string; avatarImageId?: string | null };
   const name = (username ?? "").trim();
   if (!name) return res.status(400).json({ error: "missing username" });
@@ -132,36 +132,33 @@ app.get("/days", async (_req, res) => {
 });
 
 // Feed
-app.get("/feed", async (req, res) => {
+app.get("/feed", optionalAuth, async (req: AuthRequest, res) => {
   const day = (req.query.day as string) ?? new Date().toISOString().slice(0, 10);
   const sort = (req.query.sort as string) ?? "new";
-  const viewerId = req.headers["x-user-id"] as string | null ?? null;
   const { rows } = await pool.query(
     "SELECT * FROM posts WHERE day = $1 ORDER BY created_at DESC",
     [day],
   );
-  const posts = await Promise.all(rows.map((r) => decoratePost(r, viewerId)));
+  const posts = await Promise.all(rows.map((r) => decoratePost(r, req.userId)));
   if (sort === "top") posts.sort((a, b) => b.likeCount - a.likeCount || b.createdAt - a.createdAt);
   return res.json({ posts });
 });
 
 // Profile
-app.get("/profile/:userId", async (req, res) => {
+app.get("/profile/:userId", optionalAuth, async (req: AuthRequest, res) => {
   const user = await getUser(req.params.userId);
   if (!user) return res.status(404).json({ error: "not found" });
-  const viewerId = req.headers["x-user-id"] as string | null ?? null;
   const { rows } = await pool.query(
     "SELECT * FROM posts WHERE user_id = $1 ORDER BY created_at DESC",
     [req.params.userId],
   );
-  const posts = await Promise.all(rows.map((r) => decoratePost(r, viewerId)));
+  const posts = await Promise.all(rows.map((r) => decoratePost(r, req.userId)));
   return res.json({ user, posts });
 });
 
 // Create post
-app.post("/posts", async (req, res) => {
-  const userId = req.headers["x-user-id"] as string | undefined;
-  if (!userId) return res.status(400).json({ error: "missing user" });
+app.post("/posts", requireAuth, async (req: AuthRequest, res) => {
+  const userId = req.userId!;
   const { caption, imageId, day: bodyDay } = req.body as { caption?: string; imageId?: string; day?: string };
   const text = (caption ?? "").trim();
   if (!imageId || !text) return res.status(400).json({ error: "missing fields" });
@@ -177,17 +174,15 @@ app.post("/posts", async (req, res) => {
 });
 
 // Single post
-app.get("/posts/:id", async (req, res) => {
-  const viewerId = req.headers["x-user-id"] as string | null ?? null;
+app.get("/posts/:id", optionalAuth, async (req: AuthRequest, res) => {
   const { rows } = await pool.query("SELECT * FROM posts WHERE id = $1", [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: "not found" });
-  return res.json({ post: await decoratePost(rows[0], viewerId) });
+  return res.json({ post: await decoratePost(rows[0], req.userId) });
 });
 
 // Toggle like
-app.post("/posts/:id/like", async (req, res) => {
-  const userId = req.headers["x-user-id"] as string | undefined;
-  if (!userId) return res.status(400).json({ error: "missing user" });
+app.post("/posts/:id/like", requireAuth, async (req: AuthRequest, res) => {
+  const userId = req.userId!;
   const postId = req.params.id;
   const { rows: existing } = await pool.query(
     "SELECT 1 FROM likes WHERE post_id = $1 AND user_id = $2",
@@ -227,9 +222,8 @@ app.get("/posts/:id/comments", async (req, res) => {
 });
 
 // Comments: add
-app.post("/posts/:id/comments", async (req, res) => {
-  const userId = req.headers["x-user-id"] as string | undefined;
-  if (!userId) return res.status(400).json({ error: "missing user" });
+app.post("/posts/:id/comments", requireAuth, async (req: AuthRequest, res) => {
+  const userId = req.userId!;
   const text = ((req.body as { text?: string }).text ?? "").trim();
   if (!text) return res.status(400).json({ error: "empty" });
   const id = newId();
