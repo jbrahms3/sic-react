@@ -6,10 +6,15 @@ export interface AuthRequest extends Request {
 }
 
 async function verify(token: string): Promise<string> {
-  const payload = await verifyToken(token, {
-    secretKey: process.env.CLERK_SECRET_KEY!,
-  });
-  return payload.sub;
+  try {
+    const payload = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY!,
+    });
+    return payload.sub;
+  } catch (err) {
+    console.error("[auth] verifyToken failed:", err);
+    throw err;
+  }
 }
 
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
